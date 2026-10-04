@@ -1,11 +1,130 @@
+#!/usr/bin/env python3
 import argparse
 import os
 import sys
 import xml.etree.ElementTree as ET
+import zipfile
+from pathlib import Path
+
+class VFS:
+    def __init__(self):
+        self.tree = {
+            "/": {"type": "dir", "content": None, "children": set()}
+        }
+        self.cwd = "/"
+
+    def load_from_zip(self, zip_path):
+        if not os.path.isfile(zip_path):
+            raise FileNotFoundError("VFS file not found: " + zip_path)
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                for info in zf.infolist():
+                    name = info.filename.replace("\\", "/").rstrip("/")
+                    if not name:
+                        continue
+                    path = "/" + name if not name.startswith("/") else name
+
+                    
+                    if path == "/":
+                        continue
+                    parent = path.rsplit("/", 1)[0]
+                    if parent == "":
+                        parent = "/"
+
+                    self._ensure_dir(parent)
+
+                    if info.is_dir() or info.filename.endswith("/"):
+                        self._ensure_dir(path)
+                    else:
+                        data = zf.read(info.filename)
+                        self.tree[path] = {
+                            "type": "file",
+                            "content": data,
+                            "children": set(),
+                        }
+                        
+                        name_only = path.rsplit("/", 1)[-1]
+                        self.tree[parent]["children"].add(name_only)
+        except zipfile.BadZipFile as e:
+            raise ValueError("Invalid VFS format (not a valid ZIP): " + str(e))
+
+    def _ensure_dir(self, path):
+        if path in self.tree:
+            if self.tree[path]["type"] != "dir":
+                raise NotADirectoryError("Not a directory: " + path)
+            return
+
+        
+        parts = [p for p in path.split("/") if p]
+        current = "/"
+
+        for part in parts:
+            parent = current
+            if current == "/":
+                current = "/" + part
+            else:
+                current = current + "/" + part
+
+            if current not in self.tree:
+                self.tree[current] = {
+                    "type": "dir",
+                    "content": None,
+                    "children": set(),
+                }
+                self.tree[parent]["children"].add(part)
+
+    def resolve(self, path):
+        if not path:
+            return self.cwd
+        if path.startswith("/"):
+            abs_path = path
+        else:
+            if self.cwd == "/":
+                abs_path = "/" + path
+            else:
+                abs_path = self.cwd.rstrip("/") + "/" + path
+        parts = []
+        for p in abs_path.split("/"):
+            if p == "" or p == ".":
+                continue
+            if p == "..":
+                if parts:
+                    parts.pop()
+            else:
+                parts.append(p)
+        return "/" + "/".join(parts) if parts else "/"
+
+    def exists(self, path):
+        return self.resolve(path) in self.tree
+
+    def is_dir(self, path):
+        p = self.resolve(path)
+        return p in self.tree and self.tree[p]["type"] == "dir"
+
+    def is_file(self, path):
+        p = self.resolve(path)
+        return p in self.tree and self.tree[p]["type"] == "file"
+
+    def list_dir(self, path="."):
+        p = self.resolve(path)
+        if p not in self.tree:
+            raise FileNotFoundError("No such file or directory: " + path)
+        if self.tree[p]["type"] != "dir":
+            raise NotADirectoryError("Not a directory: " + path)
+        return sorted(self.tree[p]["children"])
+
+    def read_file(self, path):
+        p = self.resolve(path)
+        if p not in self.tree:
+            raise FileNotFoundError("No such file or directory: " + path)
+        if self.tree[p]["type"] != "file":
+            raise IsADirectoryError("Is a directory: " + path)
+        return self.tree[p]["content"] or b""
 
 class ShellEmulator:
     def __init__(self, vfs_name="VFS"):
         self.vfs_name = vfs_name
+        self.vfs = VFS()
         self.running = True
         self.history = []
 
@@ -46,6 +165,7 @@ class ShellEmulator:
     def execute(self, cmd, args):
         if not cmd:
             return
+        # Пока ещё заглушки (настоящие ls/cd сделаем на этапе 4)
         if cmd == "ls":
             print("ls called with args:", args)
         elif cmd == "cd":
@@ -59,7 +179,7 @@ class ShellEmulator:
             print(cmd + ": command not found", file=sys.stderr)
 
     def prompt(self):
-        return self.vfs_name + ":/$ "
+        return self.vfs_name + ":" + self.vfs.cwd + "$ "
 
     def run_line(self, line, echo=False):
         if echo:
@@ -147,6 +267,20 @@ def main():
     print("=================================")
 
     shell = ShellEmulator(vfs_name=args.vfs_name)
+
+    if vfs_path:
+        try:
+            shell.vfs.load_from_zip(vfs_path)
+            print("VFS loaded from", vfs_path)
+        except FileNotFoundError as e:
+            print("Error loading VFS:", e, file=sys.stderr)
+            return 1
+        except ValueError as e:
+            print("Error loading VFS:", e, file=sys.stderr)
+            return 1
+        except Exception as e:
+            print("Error loading VFS:", e, file=sys.stderr)
+            return 1
 
     if script_path:
         try:
