@@ -1,10 +1,13 @@
+import argparse
 import os
 import sys
+import xml.etree.ElementTree as ET
 
 class ShellEmulator:
     def __init__(self, vfs_name="VFS"):
         self.vfs_name = vfs_name
         self.running = True
+        self.history = []
 
     def expand_env(self, text):
         result = []
@@ -43,7 +46,6 @@ class ShellEmulator:
     def execute(self, cmd, args):
         if not cmd:
             return
-
         if cmd == "ls":
             print("ls called with args:", args)
         elif cmd == "cd":
@@ -59,12 +61,19 @@ class ShellEmulator:
     def prompt(self):
         return self.vfs_name + ":/$ "
 
+    def run_line(self, line, echo=False):
+        if echo:
+            print(self.prompt() + line)
+        cmd, args = self.parse(line)
+        if cmd:
+            self.history.append(line.strip())
+            self.execute(cmd, args)
+
     def repl(self):
         while self.running:
             try:
                 line = input(self.prompt())
-                cmd, args = self.parse(line)
-                self.execute(cmd, args)
+                self.run_line(line)
             except EOFError:
                 print()
                 break
@@ -72,13 +81,83 @@ class ShellEmulator:
                 print()
                 continue
 
-def main():
-    vfs_name = "VFS"
-    if len(sys.argv) > 1 and sys.argv[1] == "--vfs-name" and len(sys.argv) > 2:
-        vfs_name = sys.argv[2]
+    def run_script(self, script_path):
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.rstrip("\n")
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    try:
+                        self.run_line(line, echo=True)
+                    except Exception as e:
+                        print("Script error:", e, file=sys.stderr)
+        except FileNotFoundError:
+            print("Script not found:", script_path, file=sys.stderr)
+            raise
 
-    shell = ShellEmulator(vfs_name=vfs_name)
-    shell.repl()
+def load_config(config_path):
+    try:
+        tree = ET.parse(config_path)
+        root = tree.getroot()
+        cfg = {}
+        for child in root:
+            if child.tag == "vfs_path" and child.text:
+                cfg["vfs_path"] = child.text.strip()
+            elif child.tag == "script_path" and child.text:
+                cfg["script_path"] = child.text.strip()
+        return cfg
+    except ET.ParseError as e:
+        raise ValueError("Invalid XML config: " + str(e))
+    except FileNotFoundError:
+        raise
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--vfs", dest="vfs_path")
+    parser.add_argument("--script", dest="script_path")
+    parser.add_argument("--config", dest="config_path")
+    parser.add_argument("--vfs-name", dest="vfs_name", default="VFS")
+    args = parser.parse_args()
+
+    print("=== Debug: startup parameters ===")
+    print("  CLI vfs_path   :", args.vfs_path)
+    print("  CLI script_path:", args.script_path)
+    print("  CLI config_path:", args.config_path)
+    print("  vfs_name       :", args.vfs_name)
+
+    cfg = {}
+    if args.config_path:
+        try:
+            cfg = load_config(args.config_path)
+            print("  Config loaded  :", cfg)
+        except FileNotFoundError:
+            print("Error: config file not found:", args.config_path, file=sys.stderr)
+            return 1
+        except ValueError as e:
+            print("Error:", e, file=sys.stderr)
+            return 1
+
+    vfs_path = args.vfs_path or cfg.get("vfs_path")
+    script_path = args.script_path or cfg.get("script_path")
+
+    print("  Final vfs_path :", vfs_path)
+    print("  Final script   :", script_path)
+    print("=================================")
+
+    shell = ShellEmulator(vfs_name=args.vfs_name)
+
+    if script_path:
+        try:
+            shell.run_script(script_path)
+        except Exception:
+            return 1
+
+    if shell.running:
+        shell.repl()
+
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
