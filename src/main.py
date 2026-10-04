@@ -165,18 +165,77 @@ class ShellEmulator:
     def execute(self, cmd, args):
         if not cmd:
             return
-        # Пока ещё заглушки (настоящие ls/cd сделаем на этапе 4)
-        if cmd == "ls":
-            print("ls called with args:", args)
-        elif cmd == "cd":
-            print("cd called with args:", args)
-        elif cmd == "exit":
-            if args:
-                print("exit: too many arguments", file=sys.stderr)
-            else:
-                self.running = False
-        else:
+        handlers = {
+            "ls": self.cmd_ls,
+            "cd": self.cmd_cd,
+            "exit": self.cmd_exit,
+            "clear": self.cmd_clear,
+            "history": self.cmd_history,
+            "cat": self.cmd_cat,
+        }
+        if cmd not in handlers:
             print(cmd + ": command not found", file=sys.stderr)
+            return
+        try:
+            handlers[cmd](args)
+        except Exception as e:
+            print(cmd + ": " + str(e), file=sys.stderr)
+    def cmd_ls(self, args):
+        path = args[0] if args else "."
+        try:
+            entries = self.vfs.list_dir(path)
+            for e in entries:
+                print(e)
+        except (FileNotFoundError, NotADirectoryError) as e:
+            print("ls: " + str(e), file=sys.stderr)
+
+    def cmd_cd(self, args):
+        if len(args) > 1:
+            print("cd: too many arguments", file=sys.stderr)
+            return
+        path = args[0] if args else "/"
+        try:
+            resolved = self.vfs.resolve(path)
+            if not self.vfs.exists(resolved):
+                raise FileNotFoundError("No such file or directory: " + path)
+            if not self.vfs.is_dir(resolved):
+                raise NotADirectoryError("Not a directory: " + path)
+            self.vfs.cwd = resolved
+        except (FileNotFoundError, NotADirectoryError) as e:
+            print("cd: " + str(e), file=sys.stderr)
+
+    def cmd_exit(self, args):
+        if args:
+            print("exit: too many arguments", file=sys.stderr)
+            return
+        self.running = False
+
+    def cmd_clear(self, args):
+        if args:
+            print("clear: too many arguments", file=sys.stderr)
+            return
+        print("\033[2J\033[H", end="")
+
+    def cmd_history(self, args):
+        if args:
+            print("history: too many arguments", file=sys.stderr)
+            return
+        for i, cmd in enumerate(self.history, 1):
+            print("  " + str(i) + "  " + cmd)
+
+    def cmd_cat(self, args):
+        if not args:
+            print("cat: missing operand", file=sys.stderr)
+            return
+        for path in args:
+            try:
+                data = self.vfs.read_file(path)
+                try:
+                    print(data.decode("utf-8"), end="")
+                except UnicodeDecodeError:
+                    print("cat: " + path + ": binary file", file=sys.stderr)
+            except (FileNotFoundError, IsADirectoryError) as e:
+                print("cat: " + str(e), file=sys.stderr)
 
     def prompt(self):
         return self.vfs_name + ":" + self.vfs.cwd + "$ "
