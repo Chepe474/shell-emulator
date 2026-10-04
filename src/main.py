@@ -120,6 +120,37 @@ class VFS:
         if self.tree[p]["type"] != "file":
             raise IsADirectoryError("Is a directory: " + path)
         return self.tree[p]["content"] or b""
+    def remove(self, path):
+        
+        p = self.resolve(path)
+        if p not in self.tree:
+            raise FileNotFoundError("No such file or directory: " + path)
+        if self.tree[p]["type"] == "dir":
+            raise IsADirectoryError("Is a directory: " + path)
+        parent = p.rsplit("/", 1)[0]
+        if parent == "":
+            parent = "/"
+        name = p.rsplit("/", 1)[-1]
+        del self.tree[p]
+        self.tree[parent]["children"].discard(name)
+
+    def remove_dir(self, path):
+        
+        p = self.resolve(path)
+        if p not in self.tree:
+            raise FileNotFoundError("No such file or directory: " + path)
+        if self.tree[p]["type"] != "dir":
+            raise NotADirectoryError("Not a directory: " + path)
+        if self.tree[p]["children"]:
+            raise OSError("Directory not empty: " + path)
+        if p == "/":
+            raise OSError("Cannot remove root directory")
+        parent = p.rsplit("/", 1)[0]
+        if parent == "":
+            parent = "/"
+        name = p.rsplit("/", 1)[-1]
+        del self.tree[p]
+        self.tree[parent]["children"].discard(name)
 
 class ShellEmulator:
     def __init__(self, vfs_name="VFS"):
@@ -172,6 +203,8 @@ class ShellEmulator:
             "clear": self.cmd_clear,
             "history": self.cmd_history,
             "cat": self.cmd_cat,
+            "rm": self.cmd_rm,
+            "rmdir": self.cmd_rmdir
         }
         if cmd not in handlers:
             print(cmd + ": command not found", file=sys.stderr)
@@ -236,6 +269,26 @@ class ShellEmulator:
                     print("cat: " + path + ": binary file", file=sys.stderr)
             except (FileNotFoundError, IsADirectoryError) as e:
                 print("cat: " + str(e), file=sys.stderr)
+
+    def cmd_rm(self, args):
+        if not args:
+            print("rm: missing operand", file=sys.stderr)
+            return
+        for path in args:
+            try:
+                self.vfs.remove(path)
+            except (FileNotFoundError, IsADirectoryError) as e:
+                print("rm: " + str(e), file=sys.stderr)
+
+    def cmd_rmdir(self, args):
+        if not args:
+            print("rmdir: missing operand", file=sys.stderr)
+            return
+        for path in args:
+            try:
+                self.vfs.remove_dir(path)
+            except (FileNotFoundError, NotADirectoryError, OSError) as e:
+                print("rmdir: " + str(e), file=sys.stderr)
 
     def prompt(self):
         return self.vfs_name + ":" + self.vfs.cwd + "$ "
