@@ -77,3 +77,4 @@ feat(config): ... — CLI + XML-конфигурация + стартовые с
 feat(vfs): ... — загрузка VFS из ZIP в память
 feat(commands): ... — настоящие ls, cd, clear, history, cat
 feat(commands): ... — rm и rmdir"# shell-emulator" 
+"# shell-emulator" 
