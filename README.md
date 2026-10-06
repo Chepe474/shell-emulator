@@ -76,4 +76,4 @@ feat(repl): ... — базовый REPL + раскрытие переменны�
 feat(config): ... — CLI + XML-конфигурация + стартовые скрипты
 feat(vfs): ... — загрузка VFS из ZIP в память
 feat(commands): ... — настоящие ls, cd, clear, history, cat
-feat(commands): ... — rm и rmdir
+feat(commands): ... — rm и rmdir"# shell-emulator" 
